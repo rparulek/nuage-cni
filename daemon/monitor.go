@@ -12,6 +12,7 @@ import (
 	"github.com/nuagenetworks/nuage-cni/config"
 	"github.com/nuagenetworks/nuage-cni/k8s"
 	"golang.org/x/net/context"
+	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	kapi "k8s.io/kubernetes/pkg/api"
 	krestclient "k8s.io/kubernetes/pkg/client/restclient"
@@ -35,6 +36,8 @@ var staleEntryTimeout int64
 var isAtomic bool
 var orchestratorType string
 var host string
+var vspConfig = &config.NuageVSPK8SConfig{}
+var vspConfigFile string
 
 type containerInfo struct {
 	ID string `json:"container_id"`
@@ -127,14 +130,14 @@ func cleanupStalePortsEntities(vrsConnection vrsSdk.VRSConnection, orchestrator 
 		}
 		log.Debugf("Currently active Mesos containers list : %v", entityUUIDList)
 	case "k8s":
-		entityUUIDList, err = getActiveK8SPods(orchestrator)
+		entityUUIDList, err = getActiveK8SPods()
 		if err != nil {
 			log.Errorf("Error occured while obtaining currently active Pods list: %v", err)
 			return err
 		}
 		log.Debugf("Currently active k8s pods list : %v", entityUUIDList)
 	case "ose":
-		entityUUIDList, err = getActiveK8SPods(orchestrator)
+		entityUUIDList, err = getActiveK8SPods()
 		if err != nil {
 			log.Errorf("Error occured while obtaining currently active Pods list: %v", err)
 			return err
@@ -368,6 +371,40 @@ func computeStalePortsEntitiesDiff(vrsData, orchestratorData []string) []string 
 	return res
 }
 
+func getVSPConfig() error {
+
+	// Reading Nuage VSP K8S yaml file
+	data, err := ioutil.ReadFile(vspConfigFile)
+	if err != nil {
+		return fmt.Errorf("Error in reading from Nuage VSP k8s yaml file: %s", err)
+	}
+
+	if err = yaml.Unmarshal(data, vspConfig); err != nil {
+		return fmt.Errorf("Error in unmarshalling data from Nuage VSP k8s yaml file: %s", err)
+	}
+
+	return err
+}
+
+func initDir(orchestrator string, host string) {
+
+	var dir string
+	if isAtomic == true {
+		dir = "/var/usr/share/"
+	} else {
+		dir = "/usr/share/"
+	}
+
+	if orchestrator == "k8s" {
+		vspConfigFile = dir + "/vsp-k8s/vsp-k8s.yaml"
+		if host == "coreos" {
+			vspConfigFile = "/var/usr/share/vsp-k8s/vsp-k8s.yaml"
+		}
+	} else {
+		vspConfigFile = dir + "/vsp-openshift/vsp-openshift.yaml"
+	}
+}
+
 // handleDaemonInterrupt will handle any external interrupts
 // to audit daemon and handle stale connection/entities cleanup
 // to have a graceful daemon exit
@@ -417,6 +454,18 @@ func MonitorAgent(config *config.Config, orchestrator string) error {
 	staleEntryTimeout = config.StaleEntryTimeout
 	orchestratorType = orchestrator
 	host = config.Host
+
+	// Determine whether the base host is RHEL server or RHEL atomic
+	isAtomic = k8s.VerifyHostType()
+
+	// Initialize file location for the VSP config yaml file
+	initDir(orchestrator, host)
+
+	// Parsing Nuage VSP yaml file on agent nodes
+	err = getVSPConfig()
+	if err != nil {
+		log.Errorf("Error in parsing Nuage config yaml file")
+	}
 
 	for {
 		vrsConnection, err = client.ConnectToVRSOVSDB(config)
@@ -479,24 +528,14 @@ func MonitorAgent(config *config.Config, orchestrator string) error {
 
 // getActiveK8SPods will help obtain UUID list
 // for currently active pods on k8s cluster
-func getActiveK8SPods(orchestrator string) ([]string, error) {
+func getActiveK8SPods() ([]string, error) {
 
 	log.Infof("Obtaining currently active K8S pods on agent node")
 	var podsList []string
 	var config *krestclient.Config
 	var kubeconfFile string
-	var dir string
-	if isAtomic == true {
-		dir = "/var/usr/share"
-	} else {
-		dir = "/usr/share"
-	}
-	if orchestrator == "k8s" {
-		kubeconfFile = dir + "/vsp-k8s/nuage.kubeconfig"
-	} else {
-		kubeconfFile = dir + "/vsp-openshift/nuage.kubeconfig"
-	}
 
+	kubeconfFile = vspConfig.KubeConfig
 	loadingRules := &clientcmd.ClientConfigLoadingRules{}
 	loadingRules.ExplicitPath = kubeconfFile
 	loader := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{})

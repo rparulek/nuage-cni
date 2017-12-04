@@ -116,6 +116,8 @@ spec:
           mountPath: /host/opt/cni/bin
         - name: cni-net-conf
           mountPath: /host/etc/cni/net.d
+        - name: kubeconfig-dir
+          mountPath: /etc/kubernetes
       hostNetwork: true
       tolerations:
       - key: "node-role.kubernetes.io/master"
@@ -140,6 +142,9 @@ spec:
         - name: cni-net-conf
           hostPath:
             path: /etc/kubernetes/cni/net.d
+        - name: kubeconfig-dir
+          hostPath:
+            path: /etc/kubernetes
   updateStrategy:
     rollingUpdate:
       maxUnavailable: 1

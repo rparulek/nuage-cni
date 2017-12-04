@@ -112,8 +112,8 @@ spec:
           mountPath: /var/log
         - name: tectonic-var-dir
           mountPath: /host/var
-        - name: tectonic-cert-dir
-          mountPath: /etc/kubernetes/pki/
+        - name: kubeconfig-dir
+          mountPath: /etc/kubernetes
       hostNetwork: true
       tolerations:
       - key: "node-role.kubernetes.io/master"
@@ -128,9 +128,9 @@ spec:
         - name: tectonic-var-dir
           hostPath:
             path: /var
-        - name: tectonic-cert-dir
+        - name: kubeconfig-dir
           hostPath:
-            path: /etc/kubernetes/pki/
+            path: /etc/kubernetes
   updateStrategy:
     rollingUpdate:
       maxUnavailable: 1
